@@ -1,0 +1,130 @@
+---
+title: "Sample GEO RNA-seq Dataset Processing Code using DESeq2 (GSE124422)"
+author: "Shayna Kay"
+date: "07/04/2022"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+## Standard set-up of R Markdown environment
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls()) # Clear R environment's memory prior to beginning analysis 
+```
+
+## Install packages and load libraries
+Required packages include: "htmltools", "DESeq2" from "Bioconductor", "ggplot2", and "dplyr".
+
+```{r install, include=FALSE}
+#install.packages("htmltools")
+library(htmltools)
+
+#if (!require("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+# BiocManager::valid()
+#BiocManager::install(c("biocLite"))
+#BiocManager::install("DESeq2")
+#biocLite("DESeq2")
+
+library(DESeq2)
+library(ggplot2)
+library(dplyr)
+```
+
+## Read count data into RStudio and process data for analysis
+Prepare the count data table as required for input into DESeq2 functions.
+
+```{r data}
+# file.choose()
+
+# Read in .csv file containing RNA-seq count data
+countData <- read.csv('C:\\Users\\shayn\\OneDrive\\Documents\\Thesis Documents\\DATA\\Bioinformatics\\GEO Files\\Select Datasets for Analysis 1\\3-GSE124422 - Copy_done\\GSE124422_htseq_counts_atra-ctrl.csv', header = TRUE, sep = ",") 
+
+head(countData) # Print the first 6 lines of the count table to confirm data import was successful
+
+countData <- countData %>% rename(ID = ï..ID) # Rename column containing gene symbols to "ID"
+head(countData) # Print the first 6 lines of the count table to confirm processing was successful
+```
+
+## Generate a metadata table 
+DESeq2 requires a metadata table containing information about the RNA-seq samples.
+
+```{r metadata}
+condition <- factor(c("X1_ATRA_counts","X2_ATRA_counts","X3_ATRA_counts","X1_untreated_counts","X2_untreated_counts","X3_untreated_counts")) # Condition column links metadata table to count table
+treatment <- factor(c("ATRA", "ATRA", "ATRA", "control", "control", "control"))
+GEO_ID <- factor(c("GSM3532958","GSM3532965", "GSM3532972", "GSM3532961", "GSM3532968", "GSM3532975"))
+metadata <- DataFrame(condition, treatment, GEO_ID) # Create the dataframe containing above sample information
+head(metadata) # Print the first 4 lines of the metadata table to confirm it was created successfully
+```
+
+## Construct DESEQDataSet Object to analyze differential gene expression
+Export a CSV file containing results for further analysis of genes of interest.
+
+```{r dds}
+# The "DESeqDataSetfromMatrix" function stores intermediate calculations and results of the analysis of 
+# differential expression based on a formula which specifies the experimental design
+dds <- DESeqDataSetFromMatrix(countData=countData, 
+                              colData=metadata, 
+                              design=~treatment, tidy = TRUE) 
+
+# Re-level experimental treatments, making control the reference treatment
+dds$treatment <- relevel(dds$treatment, ref = "control") 
+dds # View intermediate results of differential expression analysis
+
+dds <- DESeq(dds) # Complete differential expression analysis and store output in "dds" variable
+res <- results(dds) # Store the results of differential expression analysis in "res" variable
+head(results(dds, tidy = TRUE)) # View the first 6 lines of the results table to confirm expected output
+
+# Export the results of differential expression analysis and save on computer as a CSV file:
+write.csv(res,"C:\\Users\\shayn\\OneDrive\\Documents\\Thesis Documents\\DATA\\Bioinformatics\\GEO Files\\Select Datasets for Analysis 1\\3-GSE124422 - Copy_done\\DESeqResults.csv") 
+# Adjusted p-values<0.05 were extracted from this file to identify significantly differentially expressed
+# sialyltransferase and neuraminidase genes 
+# Log2(FoldChange) values were extracted from this file to create a heat map (Figure 10) of differential 
+# sialyltransferase and neuraminidase gene expression
+
+summary(res) # View summary of differential gene expression
+```
+
+# Create plots of normalized counts for sialyltransferase and neuraminidase genes of interest
+
+```{r plotCounts}
+# Use the "plotCounts" function to compare the normalized counts between treated and control groups
+
+# Gemerate plots of normalized counts for ACTB and all sialyltransferases and neuraminidases with significant differences
+par(mfrow=c(2,4)) # Set plot dimensions and layout
+plotCounts(dds, gene="ACTB", intgroup="treatment")
+plotCounts(dds, gene="ST3GAL1", intgroup="treatment")
+plotCounts(dds, gene="ST3GAL3", intgroup="treatment")
+plotCounts(dds, gene="ST3GAL4", intgroup="treatment")
+plotCounts(dds, gene="ST6GAL1", intgroup="treatment")
+plotCounts(dds, gene="ST6GALNAC6", intgroup="treatment")
+plotCounts(dds, gene="NEU3", intgroup="treatment")
+```
+
+## Create a volcano plot
+Visualize significantly differentially expressed genes in the entire dataset.
+
+```{r volcano}
+par(mfrow=c(1,1)) # Set plot dimensions and layout
+with(res, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot GSE124422", xlim=c(-3,3), ylim=c(0,200))) # Create plot with the given specifications
+
+# Add coloured points: blue if padj<0.01, red if log2FC>1 and padj<0.05)
+with(subset(res, padj<0.01), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(res, padj<0.01 & abs(log2FoldChange)>2), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+```
+
+## Principal Component Analysis
+Shows similarity of samples within the same group in transformed RNA-seq count data.
+
+```{r PCA}
+# Transform the raw count data
+# The "vst" function will perform variance stabilizing transformation
+vsdata <- vst(dds, blind=FALSE)
+par(mfrow=c(1,1)) # Set plot dimensions and layout
+
+# Using the "plotPCA" function from the "DESeq2" package to look at how samples group by treatment and day:
+plotPCA(vsdata, intgroup="treatment") 
+```
